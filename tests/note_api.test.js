@@ -5,6 +5,8 @@ const supertest = require("supertest");
 const helper = require("./test_helper");
 const app = require("../app");
 const api = supertest(app);
+const bcrypt = require("bcrypt");
+const User = require("../models/user");
 
 const Note = require("../models/note");
 
@@ -32,52 +34,100 @@ describe("when there is initially some notes saved", () => {
     assert(contents.includes("Browser can execute only JavaScript"));
   });
 
-  describe('viewing a specific note', () => {
-    test('succes with a valid id', async() => {
-      const notesAtStart = await helper.notesInDb()
+  describe("viewing a specific note", () => {
+    test("succes with a valid id", async () => {
+      const notesAtStart = await helper.notesInDb();
 
-      const noteToView = notesAtStart[0]
+      const noteToView = notesAtStart[0];
 
       const resultNote = await api
-      .get(`/api/notes/${noteToView.id}`)
-      .expect(200)
-      .expect('Content-Type', /application\/json/)
+        .get(`/api/notes/${noteToView.id}`)
+        .expect(200)
+        .expect("Content-Type", /application\/json/);
 
-      assert.deepStrictEqual(resultNote.body, noteToView)
-    })
-    test('fails with statuscode 404 if note does not exist', async () => {
-      const validNonexistingId = await helper.nonExistingId()
+      assert.deepStrictEqual(resultNote.body, noteToView);
+    });
+    test("fails with statuscode 404 if note does not exist", async () => {
+      const validNonexistingId = await helper.nonExistingId();
 
-      await api
-        .get(`/api/notes/${validNonexistingId}`)
-        .expect(404)
-    })
+      await api.get(`/api/notes/${validNonexistingId}`).expect(404);
+    });
 
-    test('fails with statuscode 400 id is invalid', async () => {
-      const invalidId = '5a3d5da59070081a82a3445'
+    test("fails with statuscode 400 id is invalid", async () => {
+      const invalidId = "5a3d5da59070081a82a3445";
 
-      await api
-        .get(`/api/notes/${invalidId}`)
-        .expect(400)
-    })
-  })
-    describe('deletion of a note', () => {
-    test('succeeds with status code 204 if id is valid', async () => {
-      const notesAtStart = await helper.notesInDb()
-      const noteToDelete = notesAtStart[0]
+      await api.get(`/api/notes/${invalidId}`).expect(400);
+    });
+  });
+  describe("deletion of a note", () => {
+    test("succeeds with status code 204 if id is valid", async () => {
+      const notesAtStart = await helper.notesInDb();
+      const noteToDelete = notesAtStart[0];
 
-      await api
-        .delete(`/api/notes/${noteToDelete.id}`)
-        .expect(204)
+      await api.delete(`/api/notes/${noteToDelete.id}`).expect(204);
 
-      const notesAtEnd = await helper.notesInDb()
+      const notesAtEnd = await helper.notesInDb();
 
-      assert.strictEqual(notesAtEnd.length, helper.initialNotes.length - 1)
+      assert.strictEqual(notesAtEnd.length, helper.initialNotes.length - 1);
 
-      const contents = notesAtEnd.map(r => r.content)
-      assert(!contents.includes(noteToDelete.content))
-    })
-  })
+      const contents = notesAtEnd.map((r) => r.content);
+      assert(!contents.includes(noteToDelete.content));
+    });
+  });
+});
+
+describe("when there is initially one user in db", () => {
+  beforeEach(async () => {
+    await User.deleteMany({});
+
+    const passwordHash = await bcrypt.hash("sekret", 10);
+    const user = new User({ username: "root", passwordHash });
+
+    await user.save();
+  });
+
+  test("creation secceeds with a fresh username", async () => {
+    const usersAtStart = await helper.usersInDb();
+
+    const newUser = {
+      username: "delito",
+      name: "Lito",
+      password: "supersecret",
+    };
+
+    await api
+      .post("/api/users")
+      .send(newUser)
+      .expect(201)
+      .expect("Content-Type", /application\/json/);
+
+    const usersAtEnd = await helper.usersInDb();
+    assert.strictEqual(usersAtEnd.length, usersAtStart.length + 1);
+
+    const username = usersAtEnd.map((u) => u.username);
+    assert(username.includes(newUser.username));
+  });
+  test("creation fails with proper statuscode and message if username already taken", async () => {
+    const usersAtStart = await helper.usersInDb();
+
+    const newUser = {
+      username: "root",
+      name: "Superuser",
+      password: "salainen",
+    };
+
+    const result = await api
+      .post("/api/users")
+      .send(newUser)
+      .expect(400)
+      .expect("Content-Type", /application\/json/);
+
+    const usersAtEnd = await helper.usersInDb();
+
+    assert(result.body.error.includes("expected `username` to be unique"));
+
+    assert.strictEqual(usersAtEnd.length, usersAtStart.length);
+  });
 });
 
 after(async () => {
